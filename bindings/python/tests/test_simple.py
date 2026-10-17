@@ -211,6 +211,8 @@ class ReadmeTestCase(unittest.TestCase):
         cases = {
             "fortran": np.asfortranarray(values),
             "strided": np.arange(24, dtype=np.float32).reshape(3, 8)[:, ::2],
+            "reversed": values[:, ::-1],
+            "broadcast": np.broadcast_to(values[0], (3, 4)),
             "empty_fortran": np.zeros((0, 4), dtype=np.float32, order="F"),
             "scalar": np.array(3.5, dtype=np.float32),
             "big_endian_fortran": np.asfortranarray(big_endian),

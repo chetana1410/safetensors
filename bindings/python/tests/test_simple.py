@@ -55,6 +55,24 @@ class TestCase(unittest.TestCase):
             b" \x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x01\x00\x00\x00",
         )
 
+    def test_metadata_tensor_name_is_rejected(self):
+        data = np.zeros((2,), dtype=np.float32)
+        with self.assertRaises(SafetensorError) as raised:
+            save({"__metadata__": data})
+        self.assertIn("reserved for the safetensors header", str(raised.exception))
+
+        with self.assertRaises(SafetensorError) as raised:
+            save({"__metadata__": data}, metadata={"format": "pt"})
+        self.assertIn("reserved for the safetensors header", str(raised.exception))
+
+        with tempfile.NamedTemporaryFile(suffix=".safetensors") as handle:
+            with self.assertRaises(SafetensorError):
+                save_file({"weight": data, "__metadata__": data}, handle.name)
+            out = save({"weight": data}, metadata={"format": "pt"})
+        self.assertIn(b'"__metadata__":{"format":"pt"}', out)
+        loaded = load(out)
+        self.assertEqual(list(loaded), ["weight"])
+
     def test_deserialization(self):
         serialized = b"""<\x00\x00\x00\x00\x00\x00\x00{"test":{"dtype":"I32","shape":[2,2],"data_offsets":[0,16]}}\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"""
 

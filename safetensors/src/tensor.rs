@@ -47,6 +47,9 @@ pub enum SafeTensorError {
     /// For smaller than 1 byte dtypes, some slices will happen outside of the byte boundary, some special care has to be taken
     /// and standard functions will fail
     MisalignedSlice,
+    /// A tensor uses `__metadata__`, the header key reserved for free-form metadata.
+    /// Saving it would write a header this library cannot read back.
+    InvalidTensorName(String),
 }
 
 #[cfg(feature = "std")]
@@ -87,10 +90,18 @@ impl Display for SafeTensorError {
             }
             MetadataIncompleteBuffer => write!(f, "incomplete metadata, file not fully covered"),
             ValidationOverflow => write!(f, "overflow computing buffer size from shape and/or element type"),
-            MisalignedSlice => write!(f, "The slice is slicing for subbytes dtypes, and the slice does not end up at a byte boundary, this is invalid.")
+            MisalignedSlice => write!(f, "The slice is slicing for subbytes dtypes, and the slice does not end up at a byte boundary, this is invalid."),
+            InvalidTensorName(name) => write!(
+                f,
+                "tensor name `{name}` is reserved for the safetensors header"
+            ),
         }
     }
 }
+
+/// Header key for free-form metadata. A tensor cannot use this name: the
+/// writer would emit it twice, or the reader would parse the tensor as metadata.
+const METADATA_ENTRY: &str = "__metadata__";
 
 #[cfg(not(feature = "std"))]
 impl core::error::Error for SafeTensorError {
@@ -236,6 +247,9 @@ where
     let mut offset = 0;
 
     for (name, tensor) in data {
+        if name.as_ref() == METADATA_ENTRY {
+            return Err(SafeTensorError::InvalidTensorName(name.to_string()));
+        }
         let n = tensor.data_len();
         let tensor_info = TensorInfo {
             dtype: tensor.dtype(),
@@ -1060,6 +1074,35 @@ mod tests {
                 assert_eq!(tensor_before, tensor_after);
             }
         }
+    }
+
+    #[test]
+    fn test_reserved_metadata_tensor_name() {
+        let data: Vec<u8> = vec![0.0f32, 1.0]
+            .into_iter()
+            .flat_map(|f| f.to_le_bytes())
+            .collect();
+        let view = TensorView::new(Dtype::F32, vec![2], &data).unwrap();
+        let tensors: HashMap<String, TensorView> =
+            [(METADATA_ENTRY.to_string(), view)].into_iter().collect();
+
+        let err = serialize(&tensors, None).unwrap_err();
+        assert!(
+            matches!(err, SafeTensorError::InvalidTensorName(ref name) if name == METADATA_ENTRY)
+        );
+
+        let view = TensorView::new(Dtype::F32, vec![2], &data).unwrap();
+        let tensors: HashMap<String, TensorView> =
+            [(METADATA_ENTRY.to_string(), view)].into_iter().collect();
+        let info = Some(
+            [("format".to_string(), "pt".to_string())]
+                .into_iter()
+                .collect(),
+        );
+        let err = serialize(&tensors, info).unwrap_err();
+        assert!(
+            matches!(err, SafeTensorError::InvalidTensorName(ref name) if name == METADATA_ENTRY)
+        );
     }
 
     #[test]
